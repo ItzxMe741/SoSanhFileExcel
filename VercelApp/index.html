@@ -795,6 +795,7 @@
                         wbOut.created = new Date();
 
                         // 1. Sheet KetQuaSoSanh
+                        const wsOverview = wbOut.addWorksheet('TongQuan');
                         const wsResult = wbOut.addWorksheet('KetQuaSoSanh');
 
                         // 2. Sheet DanhSachSai
@@ -988,7 +989,7 @@
                         };
 
                         // ================== SHEET TONG QUAN ==================
-                        const wsOverview = wbOut.insertWorksheet(1, 'TongQuan');
+                        // wsOverview da duoc khoi tao o vi tri sheet dau tien
                         wsOverview.mergeCells('A1:D1');
                         let titleCell = wsOverview.getCell('A1');
                         titleCell.value = 'BÁO CÁO KẾT QUẢ SO SÁNH & KIỂM THỬ DỮ LIỆU EXCEL';
