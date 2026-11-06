@@ -1,0 +1,12 @@
+{
+  "name": "so-sanh-kiem-thu-excel",
+  "version": "1.0.0",
+  "description": "Cong cu So Sanh va Kiem Thu File Excel truc tuyen",
+  "main": "index.html",
+  "scripts": {
+    "start": "npx serve ."
+  },
+  "keywords": ["excel", "compare", "testing", "audit"],
+  "author": "",
+  "license": "MIT"
+}

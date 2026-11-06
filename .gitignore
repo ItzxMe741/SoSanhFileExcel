@@ -1,0 +1,33 @@
+## Visual Studio / .NET
+[Bb]in/
+[Oo]bj/
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.userprefs
+
+## Build results
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+build/
+bld/
+
+## Temporary and Generated Files
+*.log
+*.tmp
+*.temp
+wwwroot/files/*.xlsx
+!wwwroot/files/.gitkeep
+
+## Node / Vercel
+node_modules/
+.vercel/
+
+## OS Files
+.DS_Store
+Thumbs.db
+desktop.ini
