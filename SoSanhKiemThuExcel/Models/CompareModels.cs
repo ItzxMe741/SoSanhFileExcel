@@ -27,6 +27,8 @@ namespace SoSanhKiemThuExcel.Models
         public int TotalDiffCells { get; set; }
         public double MatchRate { get; set; }
         public string RoundDigitsDescription { get; set; } = "";
+        public string KeyColumnName { get; set; } = "MASO";
+        public string KeyColumnDescription { get; set; } = "";
         public List<CompareDiffItem> TopErrors { get; set; } = new();
     }
 }

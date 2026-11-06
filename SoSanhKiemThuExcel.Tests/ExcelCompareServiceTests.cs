@@ -125,6 +125,80 @@ namespace SoSanhKiemThuExcel.Tests
         }
 
         [Fact]
+        public void EndToEnd_Compare_WithCustomKeyColumn_STT_MatchesCorrectly()
+        {
+            ExcelPackage.LicenseContext = LicenseContext.NonCommercial;
+
+            // File Gốc
+            using var rootPkg = new ExcelPackage();
+            var wsRoot = rootPkg.Workbook.Worksheets.Add("Sheet1");
+            wsRoot.Cells["A1"].Value = "STT";
+            wsRoot.Cells["B1"].Value = "HOTEN";
+            wsRoot.Cells["C1"].Value = "DIEM";
+
+            wsRoot.Cells["A2"].Value = 1;
+            wsRoot.Cells["B2"].Value = "Nguyen Van A";
+            wsRoot.Cells["C2"].Value = 8.5;
+
+            wsRoot.Cells["A3"].Value = 2;
+            wsRoot.Cells["B3"].Value = "Tran Thi B";
+            wsRoot.Cells["C3"].Value = 9.0;
+
+            var rootStream = new MemoryStream();
+            rootPkg.SaveAs(rootStream);
+            rootStream.Position = 0;
+
+            // File So Sánh: Đảo thứ tự dòng (STT=2 trước, STT=1 sau)
+            using var compPkg = new ExcelPackage();
+            var wsComp = compPkg.Workbook.Worksheets.Add("Sheet1");
+            wsComp.Cells["A1"].Value = "STT";
+            wsComp.Cells["B1"].Value = "HOTEN";
+            wsComp.Cells["C1"].Value = "DIEM";
+
+            wsComp.Cells["A2"].Value = 2;
+            wsComp.Cells["B2"].Value = "Tran Thi B";
+            wsComp.Cells["C2"].Value = 9.0; // Khớp 100%
+
+            wsComp.Cells["A3"].Value = 1;
+            wsComp.Cells["B3"].Value = "Nguyen Van A";
+            wsComp.Cells["C3"].Value = 7.0; // Khác điểm (8.5 vs 7.0)
+
+            var compStream = new MemoryStream();
+            compPkg.SaveAs(compStream);
+            compStream.Position = 0;
+
+            var tempOutDir = Path.Combine(Path.GetTempPath(), "ExcelCompareKeyColTest_" + Guid.NewGuid().ToString("N"));
+            var service = new ExcelCompareService();
+
+            try
+            {
+                // Chọn rõ cột khóa đối chiếu là Cột 1 (STT)
+                var result = service.Compare(
+                    rootStream, "Root.xlsx",
+                    compStream, "Comp.xlsx",
+                    1, 1, 1, 1, 2, 2, 2,
+                    tempOutDir,
+                    keyColRoot: 1,
+                    keyColCompare: 1);
+
+                Assert.Equal(2, result.TotalRowsCompared);
+                Assert.Equal(1, result.TotalPassedRows); // STT=2 passed
+                Assert.Equal(1, result.TotalFailedRows); // STT=1 failed vì điểm 8.5 != 7.0
+                Assert.Equal("STT", result.KeyColumnName);
+
+                // Lỗi ghi nhận mã số là "1" (giá trị của cột STT)
+                Assert.Contains(result.TopErrors, e => e.MaSo == "1" && e.CotSai == "DIEM");
+            }
+            finally
+            {
+                if (Directory.Exists(tempOutDir))
+                {
+                    try { Directory.Delete(tempOutDir, true); } catch { }
+                }
+            }
+        }
+
+        [Fact]
         public void EndToEnd_Compare_WithTakeAll_DetectsDifferencesAccurately()
         {
             ExcelPackage.LicenseContext = LicenseContext.NonCommercial;
@@ -187,9 +261,6 @@ namespace SoSanhKiemThuExcel.Tests
                     1, 1, 1, 1, 2, 2, 2,
                     tempOutDir);
 
-                // NV01 trùng nhau vì 100.12 == 100.12
-                // NV02 trùng nhau vì 50 == 50 và "-" == "0.00"
-                // NV03 thiếu ở compare, NV04 thiếu ở root
                 Assert.Equal(1, resRound2.TotalMissingInCompare);
                 Assert.Equal(1, resRound2.TotalMissingInRoot);
                 Assert.Equal(2, resRound2.TotalPassedRows); // NV01 và NV02 passed
@@ -223,7 +294,7 @@ namespace SoSanhKiemThuExcel.Tests
                 var wsOverview = resultPkg.Workbook.Worksheets["TongQuan"];
                 Assert.NotNull(wsOverview);
                 Assert.Contains("BÁO CÁO KẾT QUẢ SO SÁNH", wsOverview.Cells["A1"].Text);
-                Assert.Equal("Lấy hết (Không làm tròn - So sánh chính xác)", wsOverview.Cells["B7"].Text);
+                Assert.Equal("Lấy hết (Không làm tròn - So sánh chính xác)", wsOverview.Cells["B8"].Text);
             }
             finally
             {

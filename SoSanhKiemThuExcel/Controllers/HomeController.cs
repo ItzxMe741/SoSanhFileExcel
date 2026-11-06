@@ -36,7 +36,9 @@ namespace SoSanhKiemThuExcel.Controllers
             int headerRowCompare, 
             int dataStartRowRoot, 
             int dataStartRowCompare,
-            int roundDigits)
+            int roundDigits,
+            int keyColRoot = 0,
+            int keyColCompare = 0)
         {
             try
             {
@@ -100,7 +102,9 @@ namespace SoSanhKiemThuExcel.Controllers
                     dataStartRowRoot,
                     dataStartRowCompare,
                     roundDigits,
-                    uploadsFolder);
+                    uploadsFolder,
+                    keyColRoot,
+                    keyColCompare);
 
                 return Json(result);
             }

@@ -17,6 +17,8 @@ namespace SoSanhKiemThuExcel.Services
             int dataStartRowRoot,
             int dataStartRowCompare,
             int roundDigits,
-            string outputFolder);
+            string outputFolder,
+            int keyColRoot = 0,
+            int keyColCompare = 0);
     }
 }

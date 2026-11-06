@@ -67,7 +67,7 @@
         <div class="card shadow-sm border-0">
             <div class="card-header bg-white text-center py-3 border-bottom">
                 <h4 class="mb-1 fw-bold text-primary">Công Cụ So Sánh & Kiểm Thử Dữ Liệu Excel</h4>
-                <small class="text-muted">Đối chiếu mã số, phát hiện chênh lệch dữ liệu & xuất báo cáo Excel 3 sheet chuyên nghiệp</small>
+                <small class="text-muted">Tùy chọn cột khóa đối chiếu (STT, Mã số...), phát hiện chênh lệch dữ liệu & xuất báo cáo Excel 3 sheet chuyên nghiệp</small>
             </div>
             <div class="card-body p-4">
                 <!-- Khu vực upload 2 file -->
@@ -114,6 +114,18 @@
                                     </select>
                                 </div>
                             </div>
+                            <!-- Cột khóa đối chiếu File Gốc -->
+                            <div class="mb-2">
+                                <label class="form-label fw-semibold text-primary">
+                                    🔑 Cột chọn dựa theo để so sánh (Khóa đối chiếu):
+                                </label>
+                                <select class="form-select border-primary" id="keyColRoot" disabled>
+                                    <option value="0">Tự động nhận diện (STT, MASO, Mã số, ID...)</option>
+                                </select>
+                                <div class="form-text small text-muted">
+                                    Dữ liệu sẽ dùng cột này (ví dụ <b>STT</b>, <b>Mã số</b>, <b>Mã NV</b>) làm mốc để đối chiếu.
+                                </div>
+                            </div>
                         </div>
                     </div>
 
@@ -157,6 +169,18 @@
                                         <option value="6">Dòng 6</option>
                                         <option value="7">Dòng 7</option>
                                     </select>
+                                </div>
+                            </div>
+                            <!-- Cột khóa đối chiếu File So Sánh -->
+                            <div class="mb-2">
+                                <label class="form-label fw-semibold text-success">
+                                    🔑 Cột chọn dựa theo để so sánh (Khóa đối chiếu):
+                                </label>
+                                <select class="form-select border-success" id="keyColCompare" disabled>
+                                    <option value="0">Tự động (Khớp theo File Gốc hoặc tìm tự động)</option>
+                                </select>
+                                <div class="form-text small text-muted">
+                                    Cột tương ứng ở file so sánh (ví dụ <b>STT</b> bên B khớp với <b>STT</b> bên A).
                                 </div>
                             </div>
                         </div>
@@ -276,7 +300,7 @@
                                 <table class="table table-hover table-striped align-middle mb-0" id="previewTable">
                                     <thead class="table-light">
                                         <tr>
-                                            <th style="width: 15%;">Mã số</th>
+                                            <th style="width: 15%;" id="thKeyCol">Mã đối chiếu</th>
                                             <th style="width: 20%;">Cột sai lệch</th>
                                             <th style="width: 25%;">Giá trị File Gốc</th>
                                             <th style="width: 25%;">Giá trị File So Sánh</th>
@@ -315,10 +339,94 @@
             let currentResultBlob = null;
             let currentResultFileName = "";
 
+            function getColLetter(colIdx) {
+                let letter = "";
+                while (colIdx > 0) {
+                    let rem = (colIdx - 1) % 26;
+                    letter = String.fromCharCode(65 + rem) + letter;
+                    colIdx = Math.floor((colIdx - 1) / 26);
+                }
+                return letter;
+            }
+
+            function updateKeyColumns(wb, sheetIdx, headerRow, selectElem) {
+                if (!wb || !sheetIdx || !headerRow) {
+                    selectElem.html('<option value="0">Tự động nhận diện (STT, MASO, Mã số, ID...)</option>').prop('disabled', true);
+                    return;
+                }
+                const sheetName = wb.SheetNames[sheetIdx - 1];
+                const ws = wb.Sheets[sheetName];
+                if (!ws || !ws['!ref']) {
+                    selectElem.html('<option value="0">Tự động nhận diện (STT, MASO, Mã số, ID...)</option>');
+                    return;
+                }
+
+                const range = XLSX.utils.decode_range(ws['!ref']);
+                selectElem.html('<option value="0">Tự động nhận diện (STT, MASO, Mã số, ID...)</option>');
+
+                let foundCandidates = [];
+                const candidates = ['STT', 'MASO', 'MÃ SỐ', 'MÃ_SỐ', 'MA_SO', 'MÃSO', 'MÃ', 'CODE', 'ID', 'KEY'];
+
+                for (let c = range.s.c; c <= range.e.c; c++) {
+                    let cellRef = XLSX.utils.encode_cell({ r: headerRow - 1, c: c });
+                    let cell = ws[cellRef];
+                    let val = (cell && cell.v !== undefined) ? String(cell.v).trim() : '';
+                    let colNum = c + 1;
+                    let letter = getColLetter(colNum);
+                    let label = val ? `Cột ${letter}: ${val}` : `Cột ${letter} (Trống)`;
+                    selectElem.append(`<option value="${colNum}">${label}</option>`);
+
+                    if (val) {
+                        let upper = val.toUpperCase();
+                        if (candidates.includes(upper)) {
+                            foundCandidates.push({ colNum, val: upper });
+                        }
+                    }
+                }
+
+                selectElem.prop('disabled', false);
+
+                if (foundCandidates.length > 0) {
+                    let sttMatch = foundCandidates.find(x => x.val === 'STT') || foundCandidates[0];
+                    selectElem.val(sttMatch.colNum);
+                } else {
+                    selectElem.val(0);
+                }
+            }
+
+            function syncCompareKeyCol() {
+                const rootColVal = parseInt($('#keyColRoot').val());
+                if (rootColVal > 0) {
+                    const rootTxt = $('#keyColRoot option:selected').text();
+                    const idx = rootTxt.indexOf(':');
+                    if (idx > 0) {
+                        const rootColName = rootTxt.substring(idx + 1).trim().toLowerCase();
+                        $('#keyColCompare option').each(function () {
+                            const compTxt = $(this).text();
+                            const cIdx = compTxt.indexOf(':');
+                            if (cIdx > 0) {
+                                const compColName = compTxt.substring(cIdx + 1).trim().toLowerCase();
+                                if (compColName === rootColName) {
+                                    $('#keyColCompare').val($(this).val());
+                                    return false;
+                                }
+                            }
+                        });
+                    }
+                }
+            }
+
             // Đọc file và nạp danh sách sheet
-            function loadWorkbook(file, sheetSelect, callback) {
+            function loadWorkbook(file, sheetSelect, isRoot, callback) {
                 if (!file) {
                     sheetSelect.html('<option value="">Vui lòng chọn file trước</option>').prop('disabled', true);
+                    if (isRoot) {
+                        rootWorkbookData = null;
+                        updateKeyColumns(null, 0, 0, $('#keyColRoot'));
+                    } else {
+                        compareWorkbookData = null;
+                        updateKeyColumns(null, 0, 0, $('#keyColCompare'));
+                    }
                     callback(null);
                     return;
                 }
@@ -333,6 +441,14 @@
                             sheetSelect.append(`<option value="${idx + 1}">${name} (Sheet ${idx + 1})</option>`);
                         });
                         sheetSelect.prop('disabled', false).val(1);
+
+                        if (isRoot) {
+                            updateKeyColumns(wb, 1, parseInt($('#headerRowRoot').val()), $('#keyColRoot'));
+                        } else {
+                            updateKeyColumns(wb, 1, parseInt($('#headerRowCompare').val()), $('#keyColCompare'));
+                            syncCompareKeyCol();
+                        }
+
                         callback(wb);
                     } catch (err) {
                         alert('Lỗi đọc file Excel: ' + err.message);
@@ -345,7 +461,7 @@
 
             $('#fileRoot').on('change', function () {
                 const file = this.files[0];
-                loadWorkbook(file, $('#sheetRoot'), wb => {
+                loadWorkbook(file, $('#sheetRoot'), true, wb => {
                     rootWorkbookData = wb;
                     checkReady();
                 });
@@ -353,10 +469,24 @@
 
             $('#fileCompare').on('change', function () {
                 const file = this.files[0];
-                loadWorkbook(file, $('#sheetCompare'), wb => {
+                loadWorkbook(file, $('#sheetCompare'), false, wb => {
                     compareWorkbookData = wb;
                     checkReady();
                 });
+            });
+
+            $('#sheetRoot, #headerRowRoot').on('change', function () {
+                updateKeyColumns(rootWorkbookData, parseInt($('#sheetRoot').val()), parseInt($('#headerRowRoot').val()), $('#keyColRoot'));
+                syncCompareKeyCol();
+            });
+
+            $('#sheetCompare, #headerRowCompare').on('change', function () {
+                updateKeyColumns(compareWorkbookData, parseInt($('#sheetCompare').val()), parseInt($('#headerRowCompare').val()), $('#keyColCompare'));
+                syncCompareKeyCol();
+            });
+
+            $('#keyColRoot').on('change', function () {
+                syncCompareKeyCol();
             });
 
             function checkReady() {
@@ -503,22 +633,19 @@
             function findKeyColumnIndex(headers) {
                 if (!headers || headers.length === 0) return -1;
 
-                // Exact MASO
                 let idx = headers.findIndex(s => s && s.trim().toUpperCase() === 'MASO');
                 if (idx >= 0) return idx + 1;
 
-                // Common Vietnamese / English candidates
-                const candidates = ['MÃ SỐ', 'MÃ_SỐ', 'MA_SO', 'MÃSO', 'MASO_', 'MÃ', 'CODE', 'ID', 'STT', 'KEY'];
+                const candidates = ['STT', 'MÃ SỐ', 'MÃ_SỐ', 'MA_SO', 'MÃSO', 'MASO_', 'MÃ', 'CODE', 'ID', 'KEY'];
                 for (let c of candidates) {
                     idx = headers.findIndex(s => s && s.trim().toUpperCase() === c);
                     if (idx >= 0) return idx + 1;
                 }
 
-                // Normalized without accents
                 idx = headers.findIndex(s => {
                     if (!s) return false;
                     let norm = s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/gi, 'd').replace(/[\s_]/g, '').toUpperCase();
-                    return norm === 'MASO' || norm === 'MA' || norm === 'CODE' || norm === 'ID';
+                    return norm === 'MASO' || norm === 'MA' || norm === 'CODE' || norm === 'ID' || norm === 'STT';
                 });
                 if (idx >= 0) return idx + 1;
 
@@ -552,6 +679,8 @@
                 const dataStartRowRootParam = parseInt($('#dataStartRowRoot').val());
                 const dataStartRowCompParam = parseInt($('#dataStartRowCompare').val());
                 const roundDigits = parseInt($('#roundDigits').val());
+                const selectedKeyColRoot = parseInt($('#keyColRoot').val()) || 0;
+                const selectedKeyColComp = parseInt($('#keyColCompare').val()) || 0;
 
                 const actualDataStartRoot = dataStartRowRootParam > 0 ? dataStartRowRootParam : headerRowRoot + 1;
                 const actualDataStartComp = dataStartRowCompParam > 0 ? dataStartRowCompParam : headerRowComp + 1;
@@ -611,19 +740,40 @@
                             throw new Error('Không tìm thấy cột nào trùng tên giữa 2 sheet để so sánh.');
                         }
 
-                        // Tìm cột định danh (MASO)
-                        let maColRoot = findKeyColumnIndex(headerRootList);
-                        let maColComp = findKeyColumnIndex(headerCompList);
+                        // Xác định cột khóa đối chiếu (STT, MASO, v.v.)
+                        let maColRoot = (selectedKeyColRoot > 0 && selectedKeyColRoot <= maxColsRoot)
+                            ? selectedKeyColRoot
+                            : findKeyColumnIndex(headerRootList);
+
+                        let maColComp = (selectedKeyColComp > 0 && selectedKeyColComp <= maxColsComp)
+                            ? selectedKeyColComp
+                            : (selectedKeyColRoot > 0
+                                ? headerCompList.findIndex(s => s && s.trim().toLowerCase() === (headerRootList[maColRoot - 1] || '').trim().toLowerCase()) + 1
+                                : findKeyColumnIndex(headerCompList));
+
+                        if (maColComp < 1) {
+                            maColComp = findKeyColumnIndex(headerCompList);
+                        }
 
                         if (maColRoot < 1 || maColComp < 1) {
                             let missingIn = (maColRoot < 1 && maColComp < 1) ? 'cả hai file' : (maColRoot < 1 ? 'File Gốc' : 'File So Sánh');
-                            throw new Error(`Không tìm thấy cột định danh (như 'MASO', 'Mã số', 'Code', 'ID') ở ${missingIn}.`);
+                            throw new Error(`Không tìm thấy cột định danh dùng để đối chiếu ở ${missingIn}. Vui lòng chọn cột đối chiếu ở danh sách.`);
                         }
 
-                        // Map MASO -> Row
+                        let keyColRootName = (headerRootList[maColRoot - 1] && headerRootList[maColRoot - 1].trim())
+                            ? headerRootList[maColRoot - 1].trim()
+                            : `Cột ${maColRoot}`;
+
+                        let keyColCompName = (headerCompList[maColComp - 1] && headerCompList[maColComp - 1].trim())
+                            ? headerCompList[maColComp - 1].trim()
+                            : `Cột ${maColComp}`;
+
+                        // Map Key -> Row
                         let rootMap = new Map();
                         for (let r = actualDataStartRoot; r <= maxRowsRoot; r++) {
-                            let ma = (rootMatrix[r][maColRoot] || '').toString().trim();
+                            let ma = (rootMatrix[r][maColRoot] !== null && rootMatrix[r][maColRoot] !== undefined)
+                                ? String(rootMatrix[r][maColRoot]).trim()
+                                : '';
                             if (ma && !rootMap.has(ma.toLowerCase())) {
                                 rootMap.set(ma.toLowerCase(), { ma, row: r });
                             }
@@ -631,7 +781,9 @@
 
                         let compMap = new Map();
                         for (let r = actualDataStartComp; r <= maxRowsComp; r++) {
-                            let ma = (compMatrix[r][maColComp] || '').toString().trim();
+                            let ma = (compMatrix[r][maColComp] !== null && compMatrix[r][maColComp] !== undefined)
+                                ? String(compMatrix[r][maColComp]).trim()
+                                : '';
                             if (ma && !compMap.has(ma.toLowerCase())) {
                                 compMap.set(ma.toLowerCase(), { ma, row: r });
                             }
@@ -647,7 +799,7 @@
 
                         // 2. Sheet DanhSachSai
                         const wsDiff = wbOut.addWorksheet('DanhSachSai');
-                        wsDiff.addRow(['MASO', 'CotSai', 'GiaTriCu', 'GiaTriMoi', 'LoaiLoi']);
+                        wsDiff.addRow([keyColRootName, 'CotSai', 'GiaTriCu', 'GiaTriMoi', 'LoaiLoi']);
 
                         let diffRow = 2;
                         let hasAnyDiff = false;
@@ -851,6 +1003,7 @@
                             ['Thời gian kiểm thử:', new Date().toLocaleString('vi-VN')],
                             ['File Gốc:', `${$('#fileRoot')[0].files[0].name} (Sheet ${sheetRootIdx}: ${rootWsName})`],
                             ['File So Sánh:', `${$('#fileCompare')[0].files[0].name} (Sheet ${sheetCompIdx}: ${compWsName})`],
+                            ['Cột khóa đối chiếu:', `${keyColRootName} (File Gốc) ↔ ${keyColCompName} (File So Sánh)`],
                             ['Chế độ làm tròn số:', roundDesc],
                             ['Đánh giá tổng thể:', hasAnyDiff ? 'CÓ SAI LỆCH DỮ LIỆU (FAIL)' : 'KHỚP HOÀN TOÀN 100% (PASS)']
                         ];
@@ -861,7 +1014,7 @@
                             wsOverview.getCell(`A${r}`).font = { name: 'Times New Roman', bold: true };
                             wsOverview.getCell(`B${r}`).value = item[1];
                             wsOverview.getCell(`B${r}`).font = { name: 'Times New Roman' };
-                            if (i === 4) {
+                            if (i === 5) {
                                 wsOverview.getCell(`B${r}`).font = {
                                     name: 'Times New Roman',
                                     bold: true,
@@ -870,11 +1023,11 @@
                             }
                         });
 
-                        wsOverview.getCell('A10').value = 'II. BẢNG TỔNG HỢP SỐ LIỆU KIỂM THỬ';
-                        wsOverview.getCell('A10').font = { name: 'Times New Roman', size: 12, bold: true };
+                        wsOverview.getCell('A11').value = 'II. BẢNG TỔNG HỢP SỐ LIỆU KIỂM THỬ';
+                        wsOverview.getCell('A11').font = { name: 'Times New Roman', size: 12, bold: true };
 
                         const tblHeaders = ['STT', 'Chỉ số kiểm thử', 'Số lượng', 'Ghi chú'];
-                        let tblHeaderRow = wsOverview.getRow(11);
+                        let tblHeaderRow = wsOverview.getRow(12);
                         tblHeaders.forEach((h, i) => {
                             let c = tblHeaderRow.getCell(i + 1);
                             c.value = h;
@@ -885,7 +1038,7 @@
                         });
 
                         const metricList = [
-                            ['1', 'Tổng số dòng (Mã số) so sánh', totalRecords, 'Tổng bản ghi được đối chiếu'],
+                            ['1', 'Tổng số dòng đối chiếu', totalRecords, 'Tổng bản ghi được đối chiếu'],
                             ['2', 'Số dòng trùng khớp tuyệt đối (True)', totalPassed, 'Khớp toàn bộ các cột chung'],
                             ['3', 'Số dòng có sai khác (False)', totalFailed, 'Có ít nhất 1 ô sai lệch hoặc thiếu'],
                             ['4', 'Số dòng chỉ có ở file gốc (Thiếu ở file so sánh)', totalMissingInComp, 'Bị thiếu trong file so sánh'],
@@ -895,7 +1048,7 @@
                         ];
 
                         metricList.forEach((m, idx) => {
-                            let r = 12 + idx;
+                            let r = 13 + idx;
                             let row = wsOverview.getRow(r);
                             m.forEach((val, cIdx) => {
                                 let cell = row.getCell(cIdx + 1);
@@ -958,14 +1111,15 @@
                         $('#compareBtn').prop('disabled', false);
 
                         const banner = $('#statusBanner');
+                        const keyDesc = ` | Cột đối chiếu: ${keyColRootName} ↔ ${keyColCompName}`;
                         if (hasAnyDiff) {
                             banner.removeClass('alert-success').addClass('alert-warning');
                             $('#statusTitle').html('<span class="text-danger">⚠️ Phát Hiện Sai Lệch Dữ Liệu!</span>');
-                            $('#statusSubTitle').text(`Tệp: ${currentResultFileName} | Thời gian: ${processTime}s | Chế độ: ${roundDesc}`);
+                            $('#statusSubTitle').text(`Tệp: ${currentResultFileName} | Thời gian: ${processTime}s | Chế độ: ${roundDesc}${keyDesc}`);
                         } else {
                             banner.removeClass('alert-warning').addClass('alert-success');
                             $('#statusTitle').html('<span class="text-success">🎉 Xuất Sắc! Hai File Trùng Khớp Hoàn Toàn 100%!</span>');
-                            $('#statusSubTitle').text(`Tệp: ${currentResultFileName} | Thời gian: ${processTime}s | Chế độ: ${roundDesc}`);
+                            $('#statusSubTitle').text(`Tệp: ${currentResultFileName} | Thời gian: ${processTime}s | Chế độ: ${roundDesc}${keyDesc}`);
                         }
 
                         // KPI Cards
@@ -988,6 +1142,9 @@
                         } else {
                             $('#progressBar').removeClass('bg-success bg-warning').addClass('bg-danger');
                         }
+
+                        // Cập nhật tiêu đề cột khóa trong bảng preview
+                        $('#thKeyCol').text(keyColRootName);
 
                         // Live Error Preview Table
                         const tbody = $('#previewTableBody');

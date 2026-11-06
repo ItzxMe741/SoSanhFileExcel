@@ -13,5 +13,7 @@ namespace SoSanhKiemThuExcel.Models
         public int DataStartRowRoot { get; set; } = 0;
         public int DataStartRowCompare { get; set; } = 0;
         public int RoundDigits { get; set; } = 2; // -1: Lấy hết (Không làm tròn), 0..10: Số chữ số làm tròn
+        public int KeyColRoot { get; set; } = 0; // 0: Tự động, > 0: 1-based column index (STT, Mã số...)
+        public int KeyColCompare { get; set; } = 0; // 0: Tự động, > 0: 1-based column index
     }
 }

@@ -26,7 +26,9 @@ namespace SoSanhKiemThuExcel.Services
             int dataStartRowRoot,
             int dataStartRowCompare,
             int roundDigits,
-            string outputFolder)
+            string outputFolder,
+            int keyColRoot = 0,
+            int keyColCompare = 0)
         {
             var stopwatch = Stopwatch.StartNew();
 
@@ -98,9 +100,21 @@ namespace SoSanhKiemThuExcel.Services
                 throw new ArgumentException("Không tìm thấy cột nào trùng tên giữa 2 sheet để so sánh.");
             }
 
-            // Tìm cột định danh (MASO)
-            int maColRoot = FindKeyColumnIndex(headerRootList);
-            int maColCompare = FindKeyColumnIndex(headerCompareList);
+            // Xác định cột định danh dùng để đối chiếu (Key Column)
+            int maColRoot = (keyColRoot > 0 && keyColRoot <= maxColsRoot)
+                ? keyColRoot
+                : FindKeyColumnIndex(headerRootList);
+
+            int maColCompare = (keyColCompare > 0 && keyColCompare <= maxColsCompare)
+                ? keyColCompare
+                : (keyColRoot > 0
+                    ? headerCompareList.FindIndex(s => string.Equals(s?.Trim(), headerRootList[maColRoot - 1]?.Trim(), StringComparison.OrdinalIgnoreCase)) + 1
+                    : FindKeyColumnIndex(headerCompareList));
+
+            if (maColCompare < 1)
+            {
+                maColCompare = FindKeyColumnIndex(headerCompareList);
+            }
 
             if (maColRoot < 1 || maColCompare < 1)
             {
@@ -109,10 +123,18 @@ namespace SoSanhKiemThuExcel.Services
                 else if (maColRoot < 1) missingIn = "File Gốc";
                 else missingIn = "File So Sánh";
 
-                throw new ArgumentException($"Không tìm thấy cột định danh (như 'MASO', 'Mã số', 'Code', 'ID') ở {missingIn}.");
+                throw new ArgumentException($"Không tìm thấy cột định danh dùng để đối chiếu ở {missingIn}. Vui lòng chọn cột đối chiếu ở danh sách.");
             }
 
-            // Map MASO -> Row
+            string keyColRootName = (maColRoot >= 1 && maColRoot <= headerRootList.Count && !string.IsNullOrWhiteSpace(headerRootList[maColRoot - 1]))
+                ? headerRootList[maColRoot - 1]
+                : $"Cột {maColRoot}";
+
+            string keyColCompName = (maColCompare >= 1 && maColCompare <= headerCompareList.Count && !string.IsNullOrWhiteSpace(headerCompareList[maColCompare - 1]))
+                ? headerCompareList[maColCompare - 1]
+                : $"Cột {maColCompare}";
+
+            // Map MASO / Cột Khóa -> Row
             var rootMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
             int maxRowsRoot = worksheetRoot.Dimension.End.Row;
             for (int row = actualDataStartRoot; row <= maxRowsRoot; row++)
@@ -144,7 +166,7 @@ namespace SoSanhKiemThuExcel.Services
 
             // Sheet 2: DanhSachSai (Danh sách lỗi)
             var worksheetDiff = workbookResult.Worksheets.Add("DanhSachSai");
-            worksheetDiff.Cells[1, 1].Value = "MASO";
+            worksheetDiff.Cells[1, 1].Value = keyColRootName; // Tên cột khóa đối chiếu (VD: STT, MASO, ...)
             worksheetDiff.Cells[1, 2].Value = "CotSai";
             worksheetDiff.Cells[1, 3].Value = "GiaTriCu";
             worksheetDiff.Cells[1, 4].Value = "GiaTriMoi";
@@ -368,6 +390,8 @@ namespace SoSanhKiemThuExcel.Services
                 sheetRoot,
                 sheetCompare,
                 roundDesc,
+                keyColRootName,
+                keyColCompName,
                 totalUniqueRecords,
                 totalPassedRows,
                 totalFailedRows,
@@ -406,6 +430,8 @@ namespace SoSanhKiemThuExcel.Services
                 TotalDiffCells = totalDiffCells,
                 MatchRate = matchRate,
                 RoundDigitsDescription = roundDesc,
+                KeyColumnName = keyColRootName,
+                KeyColumnDescription = $"{keyColRootName} ↔ {keyColCompName}",
                 TopErrors = topErrors
             };
         }
@@ -804,6 +830,8 @@ namespace SoSanhKiemThuExcel.Services
             int sheetRootIndex,
             int sheetCompareIndex,
             string roundDigitsDesc,
+            string keyColRootName,
+            string keyColCompName,
             int totalRecords,
             int totalPassed,
             int totalFailed,
@@ -838,6 +866,7 @@ namespace SoSanhKiemThuExcel.Services
                 ("Thời gian kiểm thử:", DateTime.Now.ToString("dd/MM/yyyy HH:mm:ss")),
                 ("File Gốc:", $"{rootFileName} (Sheet {sheetRootIndex}: {sheetRootName})"),
                 ("File So Sánh:", $"{compareFileName} (Sheet {sheetCompareIndex}: {sheetCompareName})"),
+                ("Cột khóa đối chiếu:", $"{keyColRootName} (File Gốc) ↔ {keyColCompName} (File So Sánh)"),
                 ("Chế độ làm tròn số:", roundDigitsDesc),
                 ("Đánh giá tổng thể:", hasAnyDifference ? "CÓ SAI LỆCH DỮ LIỆU (FAIL)" : "KHỚP HOÀN TOÀN 100% (PASS)")
             };

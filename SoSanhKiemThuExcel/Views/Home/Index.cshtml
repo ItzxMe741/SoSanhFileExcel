@@ -34,11 +34,12 @@
     <div class="card shadow-sm border-0">
         <div class="card-header bg-primary text-white text-center py-3">
             <h4 class="mb-0 fw-bold">Công Cụ So Sánh & Kiểm Thử File Excel</h4>
-            <small class="opacity-75">Tự động đối chiếu mã số, phát hiện chênh lệch dữ liệu & xuất báo cáo chi tiết</small>
+            <small class="opacity-75">Tùy chọn cột khóa đối chiếu (STT, Mã số...), phát hiện chênh lệch dữ liệu & xuất báo cáo chi tiết</small>
         </div>
         <div class="card-body p-4">
             <!-- Khu vực upload 2 file -->
             <div class="row g-4 position-relative divider-vertical">
+                <!-- File Gốc -->
                 <div class="col-md-6">
                     <div class="p-3 bg-light rounded-3 border">
                         <h6 class="fw-bold text-primary mb-3">
@@ -80,9 +81,22 @@
                                 </select>
                             </div>
                         </div>
+                        <!-- Cột khóa đối chiếu File Gốc -->
+                        <div class="mb-2">
+                            <label class="form-label fw-semibold text-primary">
+                                🔑 Cột chọn dựa theo để so sánh (Khóa đối chiếu):
+                            </label>
+                            <select class="form-select border-primary" id="keyColRoot" disabled>
+                                <option value="0">Tự động nhận diện (STT, MASO, Mã số, ID...)</option>
+                            </select>
+                            <div class="form-text small text-muted">
+                                Dữ liệu sẽ dùng cột này (ví dụ <b>STT</b>, <b>Mã NV</b>) làm mốc để đối chiếu sang file so sánh.
+                            </div>
+                        </div>
                     </div>
                 </div>
 
+                <!-- File So Sánh -->
                 <div class="col-md-6">
                     <div class="p-3 bg-light rounded-3 border">
                         <h6 class="fw-bold text-success mb-3">
@@ -122,6 +136,18 @@
                                     <option value="6">Dòng 6</option>
                                     <option value="7">Dòng 7</option>
                                 </select>
+                            </div>
+                        </div>
+                        <!-- Cột khóa đối chiếu File So Sánh -->
+                        <div class="mb-2">
+                            <label class="form-label fw-semibold text-success">
+                                🔑 Cột chọn dựa theo để so sánh (Khóa đối chiếu):
+                            </label>
+                            <select class="form-select border-success" id="keyColCompare" disabled>
+                                <option value="0">Tự động (Khớp theo File Gốc hoặc tìm tự động)</option>
+                            </select>
+                            <div class="form-text small text-muted">
+                                Cột tương ứng ở file so sánh (ví dụ <b>STT</b> bên B khớp với <b>STT</b> bên A).
                             </div>
                         </div>
                     </div>
@@ -241,7 +267,7 @@
                             <table class="table table-hover table-striped align-middle mb-0" id="previewTable">
                                 <thead class="table-light">
                                     <tr>
-                                        <th style="width: 15%;">Mã số</th>
+                                        <th style="width: 15%;" id="thKeyCol">Mã đối chiếu</th>
                                         <th style="width: 20%;">Cột sai lệch</th>
                                         <th style="width: 25%;">Giá trị File Gốc</th>
                                         <th style="width: 25%;">Giá trị File So Sánh</th>
@@ -268,11 +294,76 @@
 
 <script>
     $(function () {
-        // Hàm đọc file Excel và populate dropdown sheet
-        function loadSheets(fileInput, sheetSelect) {
+        let rootWb = null;
+        let compareWb = null;
+
+        function getColLetter(colIdx) {
+            let letter = "";
+            while (colIdx > 0) {
+                let rem = (colIdx - 1) % 26;
+                letter = String.fromCharCode(65 + rem) + letter;
+                colIdx = Math.floor((colIdx - 1) / 26);
+            }
+            return letter;
+        }
+
+        function updateKeyColumns(wb, sheetIdx, headerRow, selectElem) {
+            if (!wb || !sheetIdx || !headerRow) {
+                selectElem.html('<option value="0">Tự động nhận diện (STT, MASO, Mã số, ID...)</option>').prop('disabled', true);
+                return;
+            }
+            const sheetName = wb.SheetNames[sheetIdx - 1];
+            const ws = wb.Sheets[sheetName];
+            if (!ws || !ws['!ref']) {
+                selectElem.html('<option value="0">Tự động nhận diện (STT, MASO, Mã số, ID...)</option>');
+                return;
+            }
+
+            const range = XLSX.utils.decode_range(ws['!ref']);
+            selectElem.html('<option value="0">Tự động nhận diện (STT, MASO, Mã số, ID...)</option>');
+
+            let foundCandidates = [];
+            const candidates = ['STT', 'MASO', 'MÃ SỐ', 'MÃ_SỐ', 'MA_SO', 'MÃSO', 'MÃ', 'CODE', 'ID', 'KEY'];
+
+            for (let c = range.s.c; c <= range.e.c; c++) {
+                let cellRef = XLSX.utils.encode_cell({ r: headerRow - 1, c: c });
+                let cell = ws[cellRef];
+                let val = (cell && cell.v !== undefined) ? String(cell.v).trim() : '';
+                let colNum = c + 1;
+                let letter = getColLetter(colNum);
+                let label = val ? `Cột ${letter}: ${val}` : `Cột ${letter} (Trống)`;
+                selectElem.append(`<option value="${colNum}">${label}</option>`);
+
+                if (val) {
+                    let upper = val.toUpperCase();
+                    if (candidates.includes(upper)) {
+                        foundCandidates.push({ colNum, val: upper });
+                    }
+                }
+            }
+
+            selectElem.prop('disabled', false);
+
+            if (foundCandidates.length > 0) {
+                let sttMatch = foundCandidates.find(x => x.val === 'STT') || foundCandidates[0];
+                selectElem.val(sttMatch.colNum);
+            } else {
+                selectElem.val(0);
+            }
+        }
+
+        // Đọc file Excel và populate dropdown sheet
+        function loadSheets(fileInput, sheetSelect, isRoot) {
             const file = fileInput.files[0];
             if (!file) {
                 sheetSelect.html('<option value="">Vui lòng chọn file trước</option>').prop('disabled', true);
+                if (isRoot) {
+                    rootWb = null;
+                    updateKeyColumns(null, 0, 0, $('#keyColRoot'));
+                } else {
+                    compareWb = null;
+                    updateKeyColumns(null, 0, 0, $('#keyColCompare'));
+                }
                 return;
             }
 
@@ -281,8 +372,9 @@
                 try {
                     const data = new Uint8Array(e.target.result);
                     const workbook = XLSX.read(data, { type: 'array' });
-                    const sheetNames = workbook.SheetNames;
+                    if (isRoot) rootWb = workbook; else compareWb = workbook;
 
+                    const sheetNames = workbook.SheetNames;
                     sheetSelect.html('');
                     sheetNames.forEach((name, index) => {
                         const option = `<option value="${index + 1}">${name} (Sheet ${index + 1})</option>`;
@@ -290,6 +382,14 @@
                     });
 
                     sheetSelect.prop('disabled', false).val(1);
+
+                    // Cập nhật danh sách cột khóa đối chiếu
+                    if (isRoot) {
+                        updateKeyColumns(rootWb, 1, parseInt($('#headerRowRoot').val()), $('#keyColRoot'));
+                    } else {
+                        updateKeyColumns(compareWb, 1, parseInt($('#headerRowCompare').val()), $('#keyColCompare'));
+                        syncCompareKeyCol();
+                    }
                 } catch (error) {
                     alert('Lỗi đọc sheet của file Excel: ' + error.message);
                     sheetSelect.html('<option value="">Lỗi đọc file</option>').prop('disabled', true);
@@ -299,14 +399,51 @@
             reader.readAsArrayBuffer(file);
         }
 
+        // Đồng bộ cột so sánh khi cột gốc đổi
+        function syncCompareKeyCol() {
+            const rootColVal = parseInt($('#keyColRoot').val());
+            if (rootColVal > 0) {
+                const rootTxt = $('#keyColRoot option:selected').text();
+                const idx = rootTxt.indexOf(':');
+                if (idx > 0) {
+                    const rootColName = rootTxt.substring(idx + 1).trim().toLowerCase();
+                    $('#keyColCompare option').each(function () {
+                        const compTxt = $(this).text();
+                        const cIdx = compTxt.indexOf(':');
+                        if (cIdx > 0) {
+                            const compColName = compTxt.substring(cIdx + 1).trim().toLowerCase();
+                            if (compColName === rootColName) {
+                                $('#keyColCompare').val($(this).val());
+                                return false;
+                            }
+                        }
+                    });
+                }
+            }
+        }
+
         $('#fileRoot').on('change', function () {
-            loadSheets(this, $('#sheetRoot'));
+            loadSheets(this, $('#sheetRoot'), true);
             checkReadyToUpload();
         });
 
         $('#fileCompare').on('change', function () {
-            loadSheets(this, $('#sheetCompare'));
+            loadSheets(this, $('#sheetCompare'), false);
             checkReadyToUpload();
+        });
+
+        $('#sheetRoot, #headerRowRoot').on('change', function () {
+            updateKeyColumns(rootWb, parseInt($('#sheetRoot').val()), parseInt($('#headerRowRoot').val()), $('#keyColRoot'));
+            syncCompareKeyCol();
+        });
+
+        $('#sheetCompare, #headerRowCompare').on('change', function () {
+            updateKeyColumns(compareWb, parseInt($('#sheetCompare').val()), parseInt($('#headerRowCompare').val()), $('#keyColCompare'));
+            syncCompareKeyCol();
+        });
+
+        $('#keyColRoot').on('change', function () {
+            syncCompareKeyCol();
         });
 
         function checkReadyToUpload() {
@@ -332,6 +469,8 @@
             formData.append('dataStartRowRoot', $('#dataStartRowRoot').val());
             formData.append('dataStartRowCompare', $('#dataStartRowCompare').val());
             formData.append('roundDigits', $('#roundDigits').val());
+            formData.append('keyColRoot', $('#keyColRoot').val() || '0');
+            formData.append('keyColCompare', $('#keyColCompare').val() || '0');
 
             // Giao diện loading
             $('#resultSection').addClass('d-none');
@@ -350,14 +489,15 @@
 
                     // Cập nhật Banner trạng thái
                     const banner = $('#statusBanner');
+                    const keyDesc = res.keyColumnDescription ? ` | Cột đối chiếu: ${res.keyColumnDescription}` : '';
                     if (res.hasAnyDifference) {
                         banner.removeClass('alert-success').addClass('alert-warning');
                         $('#statusTitle').html('<span class="text-danger">⚠️ Phát Hiện Sai Lệch Dữ Liệu!</span>');
-                        $('#statusSubTitle').text(`Tệp: ${res.fileName} | Thời gian: ${res.processTime}s | Chế độ: ${res.roundDigitsDescription}`);
+                        $('#statusSubTitle').text(`Tệp: ${res.fileName} | Thời gian: ${res.processTime}s | Chế độ: ${res.roundDigitsDescription}${keyDesc}`);
                     } else {
                         banner.removeClass('alert-warning').addClass('alert-success');
                         $('#statusTitle').html('<span class="text-success">🎉 Xuất Sắc! Hai File Trùng Khớp Hoàn Toàn 100%!</span>');
-                        $('#statusSubTitle').text(`Tệp: ${res.fileName} | Thời gian: ${res.processTime}s | Chế độ: ${res.roundDigitsDescription}`);
+                        $('#statusSubTitle').text(`Tệp: ${res.fileName} | Thời gian: ${res.processTime}s | Chế độ: ${res.roundDigitsDescription}${keyDesc}`);
                     }
 
                     // Tải file kết quả
@@ -383,6 +523,11 @@
                         $('#progressBar').removeClass('bg-success bg-danger').addClass('bg-warning');
                     } else {
                         $('#progressBar').removeClass('bg-success bg-warning').addClass('bg-danger');
+                    }
+
+                    // Tiêu đề cột khóa trong bảng preview
+                    if (res.keyColumnName) {
+                        $('#thKeyCol').text(res.keyColumnName);
                     }
 
                     // Bảng Preview lỗi
